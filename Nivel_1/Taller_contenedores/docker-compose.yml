@@ -1,0 +1,16 @@
+services:
+  jupyter:
+    build: ./jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/app/notebooks
+      - ./data:/app/data:ro
+      - ./models:/models
+
+  api:
+    build: ./api
+    ports:
+      - "8025:8025"
+    volumes:
+      - ./models:/models:ro
