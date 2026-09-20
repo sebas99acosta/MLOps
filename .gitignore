@@ -15,3 +15,21 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Modelos entrenados dinámicamente (volumen compartido jupyter <-> api).
+# Son artefactos generados en tiempo de ejecución, no código fuente: si se
+# versionan, cada clon del repo arranca con modelos "de fábrica" en vez de
+# vacío, lo que rompe la demo de auto-detección con watchdog.
+Nivel_1/Taller_contenedores/models/*
+!Nivel_1/Taller_contenedores/models/.gitkeep
+
+# Mismo motivo para Taller_Airflow: modelos entrenados por el DAG y logs de
+# Airflow son artefactos de ejecución, no código fuente.
+Nivel_2/Taller_Airflow/models/*
+!Nivel_2/Taller_Airflow/models/.gitkeep
+Nivel_2/Taller_Airflow/logs/*
+!Nivel_2/Taller_Airflow/logs/.gitkeep
+
+# .env contiene credenciales (aunque sean de demo) — no se versiona; se
+# provee .env.example como plantilla.
+Nivel_2/Taller_Airflow/.env

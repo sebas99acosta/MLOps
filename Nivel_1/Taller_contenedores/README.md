@@ -73,6 +73,19 @@ docker compose build
 docker compose up -d
 ```
 
+> **Nota sobre persistencia:** `models/` es un *bind mount* al disco del
+> host, no almacenamiento interno del contenedor. Eso significa que
+> sobrevive a `docker compose down` / `up`, a reconstruir las imágenes, e
+> incluso a borrar los contenedores — los modelos entrenados quedan ahí
+> hasta que alguien los borre a mano. Si acabas de clonar el repo y ya ves
+> modelos en el primer `docker compose up -d`, es porque alguien entrenó
+> antes y esos archivos quedaron en el volumen (`models/` está en
+> `.gitignore`, así que no deberían venir del repo). Para forzar un
+> arranque realmente vacío y ver el paso 5 (entrenar) hacer efecto en el API:
+> ```bash
+> rm -f models/*.pkl models/*.json
+> ```
+
 ### 3. Verificar que ambos estén corriendo
 
 ```bash
