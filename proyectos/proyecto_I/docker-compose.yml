@@ -1,0 +1,183 @@
+# Settings shared by every Airflow service, written once and merged into
+# each one with `<<: *airflow-common` (a YAML anchor). Any key a service
+# declares itself (command, ports, ...) is added on top.
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.3
+  user: "${AIRFLOW_UID}:0"
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@postgres-airflow:5432/${AIRFLOW_DB_NAME}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    # Connections defined as env vars: the DAG only refers to their IDs.
+    AIRFLOW_CONN_DATA_API: ${DATA_API_URL}
+    AIRFLOW_CONN_POSTGRES_DATA: postgres://${DATA_DB_USER}:${DATA_DB_PASSWORD}@postgres-data:5432/${DATA_DB_NAME}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+
+services:
+  # Local copy of the professor's Data API, for testing only. Behind a
+  # profile so it never starts by accident: bring it up explicitly with
+  #   docker compose --profile local-data-api up -d data-api
+  # For the real collection, point DATA_API_URL at the professor's API
+  # instead and leave this service off.
+  data-api:
+    build: ./data_api
+    profiles: ["local-data-api"]
+    environment:
+      - MIN_UPDATE_TIME=${MIN_UPDATE_TIME:-30}
+    volumes:
+      - ./data_api/data:/data
+    ports:
+      - "8020:80"
+
+  # Data database: raw / processed / training schemas. Separate
+  # from Airflow's metadata DB, so data can be wiped and re-collected
+  # without losing DAG run history. The schema is created by
+  # postgres/init/01_schema.sql on first start.
+  postgres-data:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=${DATA_DB_USER}
+      - POSTGRES_PASSWORD=${DATA_DB_PASSWORD}
+      - POSTGRES_DB=${DATA_DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATA_DB_USER} -d ${DATA_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Airflow's own metadata DB (DAG runs, task states, users).
+  postgres-airflow:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=${AIRFLOW_DB_USER}
+      - POSTGRES_PASSWORD=${AIRFLOW_DB_PASSWORD}
+      - POSTGRES_DB=${AIRFLOW_DB_NAME}
+    volumes:
+      - postgres_airflow:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AIRFLOW_DB_USER} -d ${AIRFLOW_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-off: creates Airflow's schema and the admin user, then exits.
+  airflow-init:
+    <<: *airflow-common
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+    command: >
+      bash -c "airflow db migrate &&
+      airflow users create --username ${AIRFLOW_ADMIN_USER} --password ${AIRFLOW_ADMIN_PASSWORD} --firstname Admin --lastname User --role Admin --email admin@example.com"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      postgres-data:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    command: scheduler
+
+  airflow-webserver:
+    <<: *airflow-common
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    ports:
+      - "8010:8080"
+    command: webserver
+
+  # Object storage for trained models. Upstream MinIO built by
+  # Chainguard, pinned by digest: the official minio/minio images are
+  # no longer published. Only the web console is exposed to the host; other
+  # services use the S3 API internally at http://minio:9000.
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "8011:9001"
+    healthcheck:
+      # `local` is mc's built-in alias for http://localhost:9000; `mc ready`
+      # checks MinIO's health endpoint, which needs no credentials.
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-off: creates the models bucket, then exits. Reuses the MinIO
+  # image because it already ships the `mc` client.
+  minio-init:
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      # MC_HOST_<alias> defines an mc alias from an env var, no `mc alias set` needed.
+      - MC_HOST_minio=http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio:9000
+      - MC_CONFIG_DIR=/tmp/.mc
+    entrypoint: ["mc", "mb", "--ignore-existing", "minio/${MINIO_BUCKET}"]
+
+  # Model training: reads training.covertype, writes versioned
+  # models + the production.json pointer to MinIO.
+  jupyter:
+    build: ./jupyter
+    # Same UID as Airflow, so notebooks saved on the VM are owned by your
+    # user and not by root. HOME=/tmp gives Jupyter a writable home dir.
+    user: "${AIRFLOW_UID}:0"
+    depends_on:
+      postgres-data:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      - HOME=/tmp
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN}
+      - DATA_DB_URL=postgresql+psycopg2://${DATA_DB_USER}:${DATA_DB_PASSWORD}@postgres-data:5432/${DATA_DB_NAME}
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - MINIO_BUCKET=${MINIO_BUCKET}
+    volumes:
+      - ./notebooks:/app/notebooks
+    ports:
+      - "8012:8888"
+
+  # Inference API: serves the model production.json points to.
+  api:
+    build: ./api
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - MINIO_BUCKET=${MINIO_BUCKET}
+    ports:
+      - "8025:8025"
+    healthcheck:
+      # python:slim has no curl; use Python itself.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8025/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+  postgres_airflow:
+  minio_data:

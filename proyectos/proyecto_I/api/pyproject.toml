@@ -1,0 +1,15 @@
+[project]
+name = "covertype-inference-api"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "boto3",
+    # Exactly the versions the models are trained with in Jupyter.
+    # The API checks these against production.json at startup.
+    "scikit-learn==1.9.1",
+    "numpy==2.4.6",
+    "scipy==1.17.1",
+    "pandas==3.0.6",
+]

@@ -33,3 +33,17 @@ Nivel_2/Taller_Airflow/logs/*
 # .env contiene credenciales (aunque sean de demo) — no se versiona; se
 # provee .env.example como plantilla.
 Nivel_2/Taller_Airflow/.env
+
+# Proyecto I: el dataset (32 MB, del repo del profesor) y el estado que el
+# data API local escribe en tiempo de ejecución no se versionan.
+proyectos/proyecto_I/data_api/data/*
+
+# .env con credenciales: no se versiona, se provee .env.example.
+proyectos/proyecto_I/.env
+
+# Logs de Airflow de Proyecto I: artefactos de ejecución.
+proyectos/proyecto_I/logs/*
+!proyectos/proyecto_I/logs/.gitkeep
+
+# Registro interno de decisiones de diseño: no se publica.
+proyectos/proyecto_I/DECISIONS.md

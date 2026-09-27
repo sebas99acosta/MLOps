@@ -1,0 +1,13 @@
+[project]
+name = "covertype-training"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "jupyterlab",
+    "pandas",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "boto3",
+    # Must match the inference API exactly.
+    "scikit-learn==1.9.1",
+]
