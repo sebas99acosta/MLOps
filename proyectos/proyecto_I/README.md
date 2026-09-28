@@ -10,6 +10,9 @@ en **MinIO**, y un **API de inferencia con FastAPI** sirve el modelo en producci
 
 ## ⭐ Puntos clave
 
+- **Resultado del despliegue en la VM:** 57.968 filas recolectadas del API del
+  profesor (99,8% del pool disponible), idénticas en las tres etapas, y un Random
+  Forest con macro-F1 0,860 sirviendo predicciones (sección 14).
 - **Una petición por ejecución del DAG**, como exige el enunciado. El DAG corre cada
   minuto, deduplica al insertar y lleva los datos nuevos por las tres etapas
   en cada corrida.
@@ -217,8 +220,8 @@ todas vienen de la misma porción, incluido el batch 2.
 - **Más peticiones significan más cobertura del pool.** Con el DAG cada minuto hay
   ~5 peticiones por ventana de 5 min, unas ~55 en total. Con un schedule de 6 min
   serían ~11. Cobertura estimada con `1 − 0,9ⁿ` (fracción del pool vista tras
-  n muestras aleatorias del 10%): ~99% frente a ~69%. Son cálculos, no mediciones:
-  la cobertura real se verá en la recolección contra el API del profesor.
+  n muestras aleatorias del 10%): ~99% frente a ~69%. **Medido en la recolección
+  real: 57.968 filas únicas de 58.101 posibles (99,8%)**, lo que confirma la estimación.
 - **`Cover_Type` va de 0 a 6** en este dataset, no de 1 a 7 como dice la tabla del
   enunciado.
 
@@ -368,27 +371,27 @@ flowchart LR
 
 ### Candidatos y métrica
 
-Se entrenan **Random Forest**, **Logistic Regression** y **HistGradientBoosting**
-, todos con `class_weight="balanced"`. Se elige el modelo por **macro-F1**, que
-pesa todas las clases por igual. Distribución de clases en la recolección de
-prueba:
+Se entrenan **Random Forest**, **Logistic Regression** y **HistGradientBoosting**,
+todos con `class_weight="balanced"`. Se elige el modelo por **macro-F1**, que pesa
+todas las clases por igual. Distribución de clases en la recolección de prueba local
+(sección 13), que muestra el desbalance:
 
 | Clase | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
 |---|---|---|---|---|---|---|---|
 | Filas | 16.818 | 19.754 | 3.631 | **29** | 787 | 2.955 | 884 |
 
-Resultados sobre 44.858 filas (35.826 train / 9.032 test), de la recolección de prueba
-con la copia local (sección 13):
+**Resultados sobre la recolección real** (57.968 filas, API del profesor):
 
 | Modelo | macro-F1 | accuracy |
 |---|---|---|
-| **Random Forest** (promovido) | **0.850** | 0.939 |
-| HistGradientBoosting | 0.818 | 0.906 |
-| Logistic Regression | 0.531 | 0.664 |
+| **Random Forest** (promovido) | **0.860** | 0.944 |
+| HistGradientBoosting | 0.789 | 0.895 |
+| Logistic Regression | 0.516 | 0.661 |
 
-La diferencia entre accuracy y macro-F1 del Random Forest (0.94 contra 0.85) es el
+La diferencia entre accuracy y macro-F1 del Random Forest (0.94 contra 0.86) es el
 desbalance hecho visible. Logistic Regression rinde mal porque las clases de covertype
-no son linealmente separables.
+no son linealmente separables. En la prueba local, con 44.858 filas, el orden fue el
+mismo (Random Forest 0.850, HistGradientBoosting 0.818, Logistic Regression 0.531).
 
 ### Promoción: campeón contra retador
 
@@ -434,7 +437,8 @@ models/
 - **Las "carpetas" no existen en S3.** La consola las dibuja al separar las llaves por
   `/`.
 
-Ejemplo real de `production.json`:
+Ejemplo de `production.json` (tomado de la prueba local; en la VM el modelo en
+producción es `20260928T002222Z_random_forest`):
 
 ```json
 {
@@ -506,10 +510,13 @@ curl -X POST http://localhost:8025/predict -H "Content-Type: application/json" -
 ```json
 {
   "cover_type": 1,
-  "model_version": "20260927T000102Z_random_forest",
-  "probabilities": {"0": 0.0771, "1": 0.9193, "2": 0.0003, "3": 0.0, "4": 0.0032, "5": 0.0, "6": 0.0001}
+  "model_version": "20260928T002222Z_random_forest",
+  "probabilities": {"0": 0.0836, "1": 0.9129, "2": 0.0013, "3": 0, "4": 0.0002, "5": 0.0001, "6": 0.0019}
 }
 ```
+
+(Respuesta real del API desplegado en la VM, con el modelo entrenado sobre la
+recolección real; ver `images/08-api.png`.)
 
 ### Códigos de respuesta
 
@@ -681,10 +688,63 @@ curl "http://localhost:8020/restart_data_generation?group_number=5"
 
 ## 14. Verificación y evidencias
 
-### Verificado durante el desarrollo
+### Despliegue real en la VM (API del profesor)
 
-Todo lo siguiente se comprobó contra los contenedores en ejecución, no solo leyendo
-el código.
+| Resultado | Valor |
+|---|---|
+| Recolección | Una corrida por minuto, de 23:14 a 00:10 UTC (27–28 sep 2026), batches 1 a 11 |
+| Tope del API | Desde las 00:11 UTC las corridas terminan en `success` con sus tareas en `skipped` |
+| Filas por etapa | raw = processed = training = **57.968** (ninguna fila descartada) |
+| Cobertura del pool | 57.968 de 58.101 filas posibles: **99,8%** |
+| Mejor modelo | Random Forest: macro-F1 **0,860**, accuracy 0,944 (promovido a producción) |
+| Modelo servido por el API | `20260928T002222Z_random_forest` |
+
+**Servicios en ejecución:** bases de datos, MinIO y API en `healthy`; `airflow-init`
+y `minio-init` en `Exited (0)`.
+
+![Servicios del proyecto](images/01-servicios.png)
+
+**Ejecuciones del DAG:** una corrida por minuto, todas exitosas. La última columna es
+la primera corrida después del tope.
+
+![Vista Grid del DAG](images/02-dag-grid.png)
+
+**Manejo del tope:** en la corrida de las 00:11 UTC el API ya no entrega datos;
+`collect_batch` queda en *skipped* y las dos tareas siguientes también.
+
+![Corrida después del tope](images/02b-dag-tope.png)
+
+**Estructura del DAG:** tres tareas en secuencia.
+
+![Vista Graph del DAG](images/03-dag-graph.png)
+
+**Bitácora de recolección** (`raw.collection_log`, batches 1 a 9 visibles): 5–6
+corridas por batch, y `rows_new` baja de 5.810 a unas decenas a medida que el pool se
+satura.
+
+![Bitácora de recolección](images/04-collection-log.png)
+
+**Filas por etapa:** las tres etapas tienen las mismas 57.968 filas.
+
+![Conteo por etapa](images/05-etapas.png)
+
+**Entrenamiento en Jupyter:** métricas de los tres candidatos sobre el test.
+
+![Métricas del entrenamiento](images/06-jupyter.png)
+
+**Modelos en MinIO:** las tres versiones del entrenamiento y el puntero
+`production.json`.
+
+![Consola de MinIO](images/07-minio.png)
+
+**Inferencia:** `POST /predict` desde Swagger, respuesta 200 con la clase, la versión
+del modelo y las probabilidades.
+
+![Predicción en el API](images/08-api.png)
+
+### Verificado durante el desarrollo (copia local del API)
+
+
 
 **Recolección completa (copia local), 14 corridas hasta el tope:**
 
@@ -721,27 +781,6 @@ el código.
 | `soil_type` desconocido (`C9999`) | 200, predice igual |
 | Arranque con scikit-learn distinto (simulado) | Arranque rechazado |
 | Arranque sin `production.json` | Arranca sin modelo |
-
-### Capturas del despliegue en la VM
-
-Corresponden a la recolección real contra el API del profesor, no a las pruebas
-locales. Se guardan en [`images/`](images/).
-
-<!--
-Insertar cada captura al tomarla, con la ruta relativa. Por ejemplo:
-![Servicios](images/01-servicios.png)
--->
-
-| Archivo | Qué muestra |
-|---|---|
-| `images/01-servicios.png` | `docker compose ps -a`: servicios healthy e inits en `Exited (0)` |
-| `images/02-dag-grid.png` | Vista Grid de Airflow: corridas cada minuto y *skipped* al llegar al tope |
-| `images/03-dag-graph.png` | Vista Graph: `collect_batch → process_new_rows → build_training_rows` |
-| `images/04-collection-log.png` | Consulta a `raw.collection_log`: batches 1–11 y `rows_new` decreciente |
-| `images/05-etapas.png` | Conteo de filas por etapa (raw / processed / training) |
-| `images/06-jupyter.png` | Notebook ejecutado: tabla de métricas y decisión de promoción |
-| `images/07-minio.png` | Consola de MinIO: versiones en `models/covertype/` y `production.json` |
-| `images/08-api.png` | Swagger: `POST /predict` con respuesta 200 |
 
 ---
 
