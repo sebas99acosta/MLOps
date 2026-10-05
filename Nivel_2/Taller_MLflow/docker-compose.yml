@@ -1,0 +1,147 @@
+services:
+  # Data database: raw and processed covertype data. Separate from MLflow's
+  # metadata DB, as the workshop requires. 01_raw_data.sql creates the
+  # schemas and loads the CSV on first start.
+  postgres-data:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=${DATA_DB_USER}
+      - POSTGRES_PASSWORD=${DATA_DB_PASSWORD}
+      - POSTGRES_DB=${DATA_DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./data:/data:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATA_DB_USER} -d ${DATA_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MLflow's backend store: experiments, runs, params, metrics, registry.
+  # MLflow creates its own tables on first start.
+  postgres-mlflow:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=${MLFLOW_DB_USER}
+      - POSTGRES_PASSWORD=${MLFLOW_DB_PASSWORD}
+      - POSTGRES_DB=${MLFLOW_DB_NAME}
+    volumes:
+      - postgres_mlflow:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MLFLOW_DB_USER} -d ${MLFLOW_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MLflow's artifact store (model files). Upstream MinIO built by
+  # Chainguard, pinned by digest: the official minio/minio images are no
+  # longer published. Only the web console is exposed; the S3 API is used
+  # internally by the MLflow server alone.
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "8015:9001"
+    healthcheck:
+      # `local` is mc's built-in alias for http://localhost:9000; `mc ready`
+      # checks MinIO's health endpoint, which needs no credentials.
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-off: creates MLflow's bucket, then exits. Reuses the MinIO image
+  # because it already ships the `mc` client.
+  minio-init:
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      # MC_HOST_<alias> defines an mc alias from an env var, no `mc alias set` needed.
+      - MC_HOST_minio=http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio:9000
+      - MC_CONFIG_DIR=/tmp/.mc
+    entrypoint: ["mc", "mb", "--ignore-existing", "minio/${MLFLOW_BUCKET}"]
+
+  # Tracking server + model registry. The only service with MinIO
+  # credentials: clients send artifacts to it over HTTP (proxied artifacts).
+  mlflow:
+    build: ./mlflow
+    depends_on:
+      postgres-mlflow:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=postgresql+psycopg2://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@postgres-mlflow:5432/${MLFLOW_DB_NAME}
+      - MLFLOW_BUCKET=${MLFLOW_BUCKET}
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
+      # Host headers MLflow accepts: the service name (Jupyter, API),
+      # localhost (healthcheck, local browser) and private IPs (VM browser).
+      - MLFLOW_ALLOWED_HOSTS=mlflow:5000,localhost:*,127.0.0.1:*,10.*,172.*,192.168.*
+    ports:
+      - "8014:5000"
+    healthcheck:
+      # python:slim has no curl; use Python itself.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Experiments: reads raw, writes processed, logs every run to MLflow and
+  # registers the best model. No MinIO credentials: artifacts go through
+  # the MLflow server.
+  jupyter:
+    build: ./jupyter
+    # Your host UID, so notebooks saved on the VM are owned by your user and
+    # not by root. HOME=/tmp gives Jupyter a writable home dir.
+    user: "${HOST_UID}:0"
+    depends_on:
+      postgres-data:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    environment:
+      - HOME=/tmp
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN}
+      - DATA_DB_URL=postgresql+psycopg2://${DATA_DB_USER}:${DATA_DB_PASSWORD}@postgres-data:5432/${DATA_DB_NAME}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - API_URL=http://api:8024
+    volumes:
+      - ./notebooks:/app/notebooks
+    ports:
+      - "8016:8888"
+
+  # Inference API: serves models:/covertype@champion, loaded through the
+  # MLflow server (no MinIO credentials).
+  api:
+    build: ./api
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MODEL_NAME=covertype
+      - MODEL_ALIAS=champion
+    ports:
+      - "8024:8024"
+    healthcheck:
+      # python:slim has no curl; use Python itself.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8024/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  postgres_data:
+  postgres_mlflow:
+  minio_data:

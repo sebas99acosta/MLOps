@@ -47,3 +47,9 @@ proyectos/proyecto_I/logs/*
 
 # Registro interno de decisiones de diseño: no se publica.
 proyectos/proyecto_I/DECISIONS.md
+
+# Taller MLflow: dataset (32 MB), credenciales y registro de decisiones.
+Nivel_2/Taller_MLflow/data/*
+!Nivel_2/Taller_MLflow/data/.gitkeep
+Nivel_2/Taller_MLflow/.env
+Nivel_2/Taller_MLflow/DECISIONS.md

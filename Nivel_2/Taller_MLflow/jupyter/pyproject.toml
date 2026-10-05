@@ -1,0 +1,19 @@
+[project]
+name = "covertype-experiments"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "jupyterlab",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "requests",
+    # Everything that writes or reads the model must match the inference API
+    # exactly: MLflow only warns on a mismatch, the API refuses to start.
+    "mlflow==3.16.1",
+    "scikit-learn==1.9.1",
+    "numpy==2.4.6",
+    "scipy==1.17.1",
+    "pandas==3.0.6",
+    "skops==0.16.0",
+    "cloudpickle==3.1.2",
+]
