@@ -87,6 +87,8 @@ services:
       # Host headers MLflow accepts: the service name (Jupyter, API),
       # localhost (healthcheck, local browser) and private IPs (VM browser).
       - MLFLOW_ALLOWED_HOSTS=mlflow:5000,localhost:*,127.0.0.1:*,10.*,172.*,192.168.*
+      # Browser origins whose UI requests MLflow accepts: local and the VM.
+      - MLFLOW_CORS_ALLOWED_ORIGINS=http://localhost:8014,http://127.0.0.1:8014,http://10.43.97.90:8014
     ports:
       - "8014:5000"
     healthcheck:

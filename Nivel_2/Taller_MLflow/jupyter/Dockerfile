@@ -5,9 +5,10 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 # --frozen: install exactly what uv.lock says, and fail if the lock is out of
-# date instead of silently resolving new versions.
+# date instead of silently resolving new versions. --no-cache: don't keep
+# uv's download cache inside the image (it would roughly double its size).
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen
+RUN uv sync --frozen --no-cache
 
 ENV PATH="/app/.venv/bin:$PATH"
 
