@@ -1,0 +1,134 @@
+# Inference stack for the load test. Runs on the VM; Locust runs on another
+# machine and only talks to Nginx on port 8000.
+#
+#   1 replica:   docker compose up -d --scale api=1
+#   3 replicas:  docker compose up -d --scale api=3
+#
+# It reuses Nivel_2/Taller_MLflow's volumes (MLflow metadata + model files),
+# so the models trained there are already registered. Never run both stacks
+# at the same time: two Postgres servers on one data directory corrupt it.
+
+services:
+  # ---- Inference --------------------------------------------------------
+
+  # The image published on Docker Hub (built from ./api). No container_name
+  # and no published port: --scale creates several containers, and only
+  # Nginx reaches them.
+  api:
+    image: sebas10acosta/locust-covertype-api:1.0
+    expose:
+      - "8024"
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MODEL_NAME=covertype
+      # RF 50 trees: fits in 1 GB. @champion (RF 200 trees) is OOM-killed.
+      - MODEL_ALIAS=loadtest
+    # Limits per replica. memswap_limit = mem_limit means no swap: the
+    # replica gets exactly 1 GB, not 1 GB of RAM plus extra swap.
+    cpus: ${API_CPUS:-1.0}
+    mem_limit: ${API_MEMORY:-1g}
+    memswap_limit: ${API_MEMORY:-1g}
+    # No restart policy on purpose: a replica killed for memory stays dead
+    # and visible (OOMKilled) instead of silently coming back mid-test.
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8024/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Reverse proxy + load balancer: the only entry point for Locust.
+  proxy:
+    image: nginx:1.27.5-alpine
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # One-off: points the @loadtest alias at the RF 50 model.
+  #   docker compose --profile setup run --rm register-model
+  register-model:
+    image: sebas10acosta/locust-covertype-api:1.0
+    profiles: ["setup"]
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["python", "/scripts/register_loadtest_model.py"]
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+  # ---- What the API needs: MLflow and its stores --------------------------
+
+  postgres-mlflow:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=${MLFLOW_DB_USER}
+      - POSTGRES_PASSWORD=${MLFLOW_DB_PASSWORD}
+      - POSTGRES_DB=${MLFLOW_DB_NAME}
+    volumes:
+      - mlflow_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MLFLOW_DB_USER} -d ${MLFLOW_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    volumes:
+      - mlflow_artifacts:/data
+    ports:
+      - "8015:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Same server image as Taller MLflow: reused if it already exists on the
+  # machine, built from that workshop's Dockerfile otherwise.
+  mlflow:
+    image: taller_mlflow-mlflow:latest
+    build: ../../Nivel_2/Taller_MLflow/mlflow
+    depends_on:
+      postgres-mlflow:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=postgresql+psycopg2://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@postgres-mlflow:5432/${MLFLOW_DB_NAME}
+      - MLFLOW_BUCKET=${MLFLOW_BUCKET}
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
+      - MLFLOW_ALLOWED_HOSTS=mlflow:5000,localhost:*,127.0.0.1:*,10.*,172.*,192.168.*
+      - MLFLOW_CORS_ALLOWED_ORIGINS=http://localhost:8014,http://127.0.0.1:8014,http://10.43.97.90:8014
+    ports:
+      - "8014:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+# Created by Nivel_2/Taller_MLflow; `external` makes compose fail loudly if
+# they don't exist instead of starting with an empty MLflow.
+volumes:
+  mlflow_db:
+    external: true
+    name: taller_mlflow_postgres_mlflow
+  mlflow_artifacts:
+    external: true
+    name: taller_mlflow_minio_data

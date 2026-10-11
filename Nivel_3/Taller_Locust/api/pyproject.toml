@@ -1,0 +1,21 @@
+[project]
+name = "covertype-api"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "requests",
+    # Must match the Jupyter (training) environment exactly: the API refuses
+    # to start if the model's recorded versions differ.
+    "mlflow==3.16.1",
+    "scikit-learn==1.9.1",
+    "numpy==2.4.6",
+    "scipy==1.17.1",
+    "pandas==3.0.6",
+    "skops==0.16.0",
+    "cloudpickle==3.1.2",
+    # Listed in the model's requirements.txt (MLflow records it); without it
+    # MLflow warns about a dependency mismatch at load time.
+    "psutil==7.2.2",
+]

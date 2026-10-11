@@ -1,0 +1,18 @@
+# Locust, for the PC (the machine that generates load). Not for the VM.
+#
+# Web UI:   docker compose up --build        then open http://localhost:8089
+# Headless: ../scripts/run_levels.sh          (one run per user level)
+#
+# TARGET_HOST is Nginx on the VM. Override it for a local dry run, e.g.
+#   TARGET_HOST=http://host.docker.internal:8000 docker compose up
+
+services:
+  locust:
+    build: .
+    image: taller-locust-generator
+    environment:
+      - LOCUST_HOST=${TARGET_HOST:-http://10.43.97.90:8000}
+    ports:
+      - "8089:8089"
+    volumes:
+      - ../resultados:/resultados

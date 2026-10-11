@@ -53,3 +53,8 @@ Nivel_2/Taller_MLflow/data/*
 !Nivel_2/Taller_MLflow/data/.gitkeep
 Nivel_2/Taller_MLflow/.env
 Nivel_2/Taller_MLflow/DECISIONS.md
+
+# Taller Locust: credenciales y registro de decisiones. Los CSV de resultados
+# sí se versionan: son la evidencia de las pruebas de carga.
+Nivel_3/Taller_Locust/.env
+Nivel_3/Taller_Locust/DECISIONS.md
