@@ -1,0 +1,82 @@
+# MLflow tracking server + model registry. A Deployment: it keeps no data of
+# its own (metadata in Postgres, model files in MinIO), so any pod is
+# interchangeable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      # Wait for Postgres instead of crash-looping until it is up.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command: ["sh", "-c", "until pg_isready -h postgres -p 5432; do echo waiting for postgres; sleep 3; done"]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+      containers:
+        - name: mlflow
+          image: sebas10acosta/mlops-mlflow:3.16.1
+          ports:
+            - name: http
+              containerPort: 5000
+          env:
+            - name: MLFLOW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: MLFLOW_DB_PASSWORD}
+            - name: MLFLOW_BACKEND_STORE_URI
+              value: postgresql+psycopg2://mlflow:$(MLFLOW_DB_PASSWORD)@postgres:5432/mlflow
+            - name: MLFLOW_BUCKET
+              valueFrom:
+                configMapKeyRef: {name: mlops-config, key: MLFLOW_BUCKET}
+            - name: MLFLOW_S3_ENDPOINT_URL
+              valueFrom:
+                configMapKeyRef: {name: mlops-config, key: MINIO_ENDPOINT}
+            # Only this pod has MinIO credentials (proxied artifacts).
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: MINIO_ROOT_USER}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: MINIO_ROOT_PASSWORD}
+            - name: MLFLOW_WORKERS
+              value: "2"
+            # MLflow 3 starts 8 background "job" processes (huey consumers
+            # for GenAI evaluation / online scoring), ~1.7 GB in total. This
+            # project uses neither. Measured: 1.9 GiB -> 624 MiB.
+            - name: MLFLOW_SERVER_ENABLE_JOB_EXECUTION
+              value: "false"
+            # Host headers accepted: the service name from inside `mlops`,
+            # from other namespaces (Airflow), localhost (probes) and the
+            # private IPs used to open the UI.
+            - name: MLFLOW_ALLOWED_HOSTS
+              value: mlflow:5000,mlflow.mlops:5000,mlflow.mlops.svc:5000,mlflow.mlops.svc.cluster.local:5000,localhost:*,127.0.0.1:*,10.*,172.*,192.168.*
+            # Browser origin of the UI (VM port 8011).
+            - name: MLFLOW_CORS_ALLOWED_ORIGINS
+              value: http://10.43.97.90:8011,http://localhost:8011
+          resources:
+            # Measured ~624 MiB idle (2 workers, jobs disabled).
+            requests: {cpu: 200m, memory: 640Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          # First start runs MLflow's database migrations: allow up to 3 min
+          # before the liveness probe can restart it.
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+            failureThreshold: 3

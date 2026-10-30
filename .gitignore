@@ -58,3 +58,10 @@ Nivel_2/Taller_MLflow/DECISIONS.md
 # sí se versionan: son la evidencia de las pruebas de carga.
 Nivel_3/Taller_Locust/.env
 Nivel_3/Taller_Locust/DECISIONS.md
+
+# Proyecto II: registro interno de decisiones y credenciales.
+proyectos/proyecto_II/DECISIONS.md
+proyectos/proyecto_II/.env
+proyectos/proyecto_II/data/*
+!proyectos/proyecto_II/data/.gitkeep
+proyectos/proyecto_II/k8s/secrets.env

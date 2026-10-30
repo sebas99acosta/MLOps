@@ -1,0 +1,12 @@
+# Non-sensitive configuration shared by several components.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-config
+data:
+  MLFLOW_BUCKET: mlflow
+  MINIO_ENDPOINT: http://minio:9000
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  DIABETES_DB: diabetes
+  MLFLOW_DB: mlflow

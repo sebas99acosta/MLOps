@@ -1,0 +1,28 @@
+# S3 API: internal only (only the MLflow server talks to it).
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: api
+---
+# Web console, reachable from the PC: NodePort 30012 inside the Rancher
+# container, published on the VM as port 8012 (see k8s/README.md, ports).
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-console
+spec:
+  type: NodePort
+  selector:
+    app: minio
+  ports:
+    - name: console
+      port: 9001
+      targetPort: console
+      nodePort: 30012

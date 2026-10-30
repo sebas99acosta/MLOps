@@ -1,0 +1,12 @@
+[project]
+name = "mlflow-server"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    # Same MLflow version as Jupyter and the API.
+    "mlflow==3.16.1",
+    # Driver for the Postgres backend store (not in the official image).
+    "psycopg2-binary",
+    # S3 client the server uses to write artifacts to MinIO.
+    "boto3",
+]

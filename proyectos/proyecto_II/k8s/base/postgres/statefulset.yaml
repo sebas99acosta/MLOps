@@ -1,0 +1,83 @@
+# One Postgres instance for the three databases (diabetes, mlflow, airflow).
+# StatefulSet: stable name (postgres-0) and its own disk, created from
+# volumeClaimTemplates and re-attached to the same pod after every restart.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: POSTGRES_PASSWORD}
+            # Read only by init-databases.sh, on the first start.
+            - name: DIABETES_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: DIABETES_DB_PASSWORD}
+            - name: MLFLOW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: MLFLOW_DB_PASSWORD}
+            - name: AIRFLOW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: AIRFLOW_DB_PASSWORD}
+            # Subfolder: the volume's root is not an empty directory on every
+            # storage backend, and initdb refuses non-empty directories.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          # Over TCP on purpose: during the first-start init Postgres only
+          # listens on its Unix socket, so the pod is not Ready until the
+          # databases exist.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init
+          configMap:
+            name: postgres-init
+            # Executable: the entrypoint then runs it in its own process.
+            # A non-executable .sh would be sourced into the entrypoint's
+            # shell, and the script's `set -eu` would leak into it.
+            defaultMode: 0555
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
