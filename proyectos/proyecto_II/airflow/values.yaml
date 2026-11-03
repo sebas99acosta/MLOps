@@ -102,12 +102,17 @@ workers:
     persistence:
       size: 2Gi
 
+# Not Helm hooks: as hooks they only start after the other resources are
+# ready, but those wait for the migrations -> with `helm --wait` both sides
+# wait forever (context deadline exceeded). As normal Jobs they start at once.
 migrateDatabaseJob:
+  useHelmHooks: false
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: 500m, memory: 768Mi}
 
 createUserJob:
+  useHelmHooks: false
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: 500m, memory: 768Mi}
