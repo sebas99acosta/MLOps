@@ -1,0 +1,114 @@
+# Values for the official Airflow Helm chart 1.22.0 (Airflow 3.2.2).
+#
+#   helm upgrade --install airflow apache-airflow/airflow --version 1.22.0 \
+#     --namespace airflow --create-namespace -f airflow/values.yaml \
+#     --set createUserJob.defaultUser.password="$AIRFLOW_ADMIN_PASSWORD"
+#
+# Based on the course guide (Niveles/3/Airflow: LocalExecutor, DAGs baked into
+# a custom image) with the project's adjustments: our own Postgres, every
+# container with requests/limits, unused components off, UI on NodePort 30010
+# (VM port 8010), and secrets created beforehand (k8s/airflow/create-secrets.sh).
+
+images:
+  airflow:
+    repository: sebas10acosta/mlops-airflow
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+
+# Tasks run inside the scheduler pod. The heavy ones are not Airflow tasks
+# themselves: they launch trainer pods (KubernetesPodOperator).
+executor: LocalExecutor
+# Lets the scheduler's service account create pods in its own namespace; the
+# trainer pods run in `mlops`, granted by k8s/base/airflow-access.yaml.
+allowPodLaunching: true
+
+# --- Metadata database: the `airflow` database of our Postgres (namespace mlops).
+postgresql:
+  enabled: false           # the chart's bundled one is a Bitnami (legacy) image
+data:
+  metadataSecretName: airflow-metadata
+
+# Stable keys from Secrets: if the chart generated them, every `helm upgrade`
+# would rotate them (invalid sessions, undecryptable connections).
+fernetKeySecretName: airflow-fernet
+apiSecretKeySecretName: airflow-api-secret
+jwtSecretName: airflow-jwt-secret
+
+# --- Components we do not need.
+redis:
+  enabled: false           # only for CeleryExecutor
+pgbouncer:
+  enabled: false           # connection pooling: unnecessary at this scale
+statsd:
+  enabled: false           # app metrics come from the inference API via Prometheus
+triggerer:
+  enabled: false           # only for deferrable operators, which the DAG doesn't use
+
+# --- Configuration shared by every Airflow container.
+env:
+  - name: AIRFLOW__CORE__LOAD_EXAMPLES
+    value: "False"
+  - name: AIRFLOW__API__WORKERS          # one API-server worker is plenty for a few users
+    value: "1"
+  - name: ML_IMAGE                        # image of the trainer pods
+    value: sebas10acosta/mlops-diabetes-ml:0.1.0
+
+# Airflow connections, as environment variables from a Secret.
+secret:
+  - envName: AIRFLOW_CONN_DIABETES_DB
+    secretName: airflow-connections
+    secretKey: AIRFLOW_CONN_DIABETES_DB
+  - envName: AIRFLOW_CONN_MINIO_S3
+    secretName: airflow-connections
+    secretKey: AIRFLOW_CONN_MINIO_S3
+
+# --- Components we run, each with requests/limits (also used by their
+# wait-for-migrations init containers).
+scheduler:
+  resources:
+    requests: {cpu: 250m, memory: 768Mi}
+    limits: {cpu: "1", memory: 1536Mi}   # also runs the light tasks (reads the 19 MB CSV)
+  logGroomerSidecar:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {cpu: 100m, memory: 64Mi}
+
+dagProcessor:
+  enabled: true
+  resources:
+    requests: {cpu: 100m, memory: 384Mi}
+    limits: {cpu: 500m, memory: 768Mi}
+  logGroomerSidecar:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {cpu: 100m, memory: 64Mi}
+
+apiServer:
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  service:
+    type: NodePort
+    ports:
+      - name: api-server
+        port: "{{ .Values.ports.apiServer }}"
+        nodePort: 30010
+
+# With LocalExecutor the scheduler is a StatefulSet whose task-log volume is
+# configured under `workers` (chart default: 100Gi). Logs survive scheduler
+# restarts; 2Gi is plenty for this DAG.
+workers:
+  celery:
+    persistence:
+      size: 2Gi
+
+migrateDatabaseJob:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 768Mi}
+
+createUserJob:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 768Mi}
+  # password: passed with --set at install time, never committed.

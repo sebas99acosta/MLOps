@@ -1,0 +1,33 @@
+# One-off: creates the bucket for source datasets (Diabetes.csv is uploaded
+# there, the DAG reads it from there). A separate Job: a Job's spec can't be
+# changed once created, so extending minio-create-bucket would need a delete.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-datasets-bucket
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
+          command: ["mc", "mb", "--ignore-existing", "minio/$(DATASETS_BUCKET)"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: MINIO_ROOT_USER}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: MINIO_ROOT_PASSWORD}
+            - name: DATASETS_BUCKET
+              valueFrom:
+                configMapKeyRef: {name: mlops-config, key: DATASETS_BUCKET}
+            - name: MC_HOST_minio
+              value: http://$(MINIO_ROOT_USER):$(MINIO_ROOT_PASSWORD)@minio:9000
+            - name: MC_CONFIG_DIR
+              value: /tmp/.mc
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 128Mi}

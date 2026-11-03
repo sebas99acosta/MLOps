@@ -42,3 +42,20 @@ kubectl create namespace mlops
 kubectl -n mlops create secret generic mlops-secrets --from-env-file=k8s/secrets.env
 kubectl apply -k k8s/base
 ```
+
+## Airflow (namespace `airflow`, Helm chart 1.22.0)
+
+Needs the base applied first (its Postgres, MinIO and the RBAC in `mlops`).
+
+```bash
+bash k8s/airflow/create-secrets.sh
+set -a; source k8s/secrets.env; set +a
+helm repo add apache-airflow https://airflow.apache.org && helm repo update
+helm upgrade --install airflow apache-airflow/airflow --version 1.22.0 \
+  --namespace airflow -f airflow/values.yaml \
+  --set createUserJob.defaultUser.password="$AIRFLOW_ADMIN_PASSWORD" \
+  --wait --timeout 20m
+```
+
+The DAG reads `s3://datasets/diabetes/Diabetes.csv`: upload the file to MinIO
+(console on port 8012) before the first run.

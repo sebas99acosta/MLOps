@@ -5,6 +5,7 @@ metadata:
   name: mlops-config
 data:
   MLFLOW_BUCKET: mlflow
+  DATASETS_BUCKET: datasets
   MINIO_ENDPOINT: http://minio:9000
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"

@@ -1,0 +1,13 @@
+# Default requests/limits for any container in `mlops` that doesn't declare
+# its own. Every container we write declares them; this covers the ones we
+# don't write, e.g. the XCom sidecar KubernetesPodOperator adds to trainer
+# pods (it sets requests but no limits).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-container-resources
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 10m, memory: 32Mi}
+      default: {cpu: 200m, memory: 128Mi}

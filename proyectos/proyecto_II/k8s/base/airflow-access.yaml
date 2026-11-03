@@ -1,0 +1,35 @@
+# Lets Airflow's scheduler (namespace `airflow`) run the trainer pods in
+# `mlops`, where the Secrets they need live. The chart's allowPodLaunching only
+# covers Airflow's own namespace. Minimum KubernetesPodOperator needs: manage
+# pods, read their logs, exec into the XCom sidecar to read the result, and
+# read events to report scheduling problems.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: airflow-pod-launcher
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, watch, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create, get]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-pod-launcher
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: airflow-pod-launcher
+subjects:
+  - kind: ServiceAccount
+    name: airflow-scheduler
+    namespace: airflow

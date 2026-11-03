@@ -1,0 +1,38 @@
+[project]
+name = "diabetes-ml"
+version = "0.1.0"
+description = "Shared cleaning rules, training steps and inference API (one image: sebas10acosta/mlops-diabetes-ml)"
+requires-python = "==3.11.*"
+dependencies = [
+    # Training and serving use this same environment, so a model is always
+    # loaded with exactly the library versions it was trained with.
+    # skinny: the MLflow client and model flavors, without the tracking
+    # server's own dependencies (the server runs in its own image).
+    "mlflow-skinny==3.16.1",
+    "scikit-learn==1.9.1",
+    "numpy==2.4.6",
+    "scipy==1.17.1",
+    "pandas==3.0.6",
+    "skops==0.16.0",
+    "cloudpickle==3.1.2",
+    "matplotlib",
+    "sqlalchemy",
+    "psycopg2-binary",
+    # Inference API.
+    "fastapi",
+    "uvicorn",
+    "prometheus-client",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diabetes_features", "src/trainer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
