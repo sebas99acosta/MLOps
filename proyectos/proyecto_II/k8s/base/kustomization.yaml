@@ -20,3 +20,5 @@ resources:
   - postgres
   - minio
   - mlflow
+  - api
+  - ui

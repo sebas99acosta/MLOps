@@ -1,0 +1,64 @@
+# Inference API. Stateless (model from MLflow, logs to Postgres), so a
+# Deployment; scale with replicas. Same image as the trainer pods.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+      # Read by Prometheus (Block 5): scrape this pod's /metrics.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: api
+          image: sebas10acosta/mlops-diabetes-ml:0.2.0
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:5000
+            - name: RELOAD_INTERVAL_SECONDS   # how often @champion is checked
+              value: "60"
+            - name: DIABETES_DB_HOST
+              valueFrom:
+                configMapKeyRef: {name: mlops-config, key: POSTGRES_HOST}
+            - name: DIABETES_DB_PORT
+              valueFrom:
+                configMapKeyRef: {name: mlops-config, key: POSTGRES_PORT}
+            - name: DIABETES_DB_NAME
+              valueFrom:
+                configMapKeyRef: {name: mlops-config, key: DIABETES_DB}
+            - name: DIABETES_DB_USER
+              value: diabetes
+            - name: DIABETES_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: mlops-secrets, key: DIABETES_DB_PASSWORD}
+          resources:
+            # Same budget as Taller Locust's API, so load results compare.
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          # Startup downloads the model from MLflow: up to 2 min.
+          startupProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 5
+            failureThreshold: 24
+          # Ready only with a model loaded: no traffic to a pod that would 503.
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          # Alive = the process answers; a missing model is not a reason to restart.
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+            failureThreshold: 3

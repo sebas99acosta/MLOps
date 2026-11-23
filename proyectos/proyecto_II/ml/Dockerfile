@@ -1,7 +1,7 @@
 # One image for the trainer pods and the inference API:
 #   sebas10acosta/mlops-diabetes-ml
 #   trainer:  python -m trainer.train   (launched by Airflow's KubernetesPodOperator)
-#   API:      uvicorn api.main:app       (added with the API block)
+#   API:      uvicorn api.main:app       (default command)
 # Same environment for both, so a model is always served with the library
 # versions it was trained with.
 FROM python:3.11-slim
@@ -24,3 +24,8 @@ ENV PATH="/app/.venv/bin:$PATH" \
     GIT_PYTHON_REFRESH=quiet
 
 USER app
+
+EXPOSE 8000
+# One worker: the model lives in memory once, and the Prometheus metrics live
+# in a single process. Scale with replicas, not workers.
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

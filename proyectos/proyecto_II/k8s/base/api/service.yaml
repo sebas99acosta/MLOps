@@ -1,0 +1,15 @@
+# API: NodePort 30013 -> VM port 8013 (docs at http://<VM>:8013/docs).
+# Inside the cluster: http://api:8000 (Streamlit, Locust, Prometheus).
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  type: NodePort
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      nodePort: 30013
