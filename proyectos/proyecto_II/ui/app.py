@@ -51,7 +51,12 @@ with st.sidebar:
         metrics = info.get("metrics", {})
         if metrics:
             st.write("**Metrics (MLflow tags)**")
-            st.table({name.replace("_", " "): [f"{value:.3f}"] for name, value in metrics.items()})
+            labels = {"validation_pr_auc": "PR-AUC (val)", "test_pr_auc": "PR-AUC (test)",
+                      "validation_recall": "Recall (val)", "validation_precision": "Precision (val)"}
+            columns = st.columns(2)
+            for i, (name, label) in enumerate(labels.items()):
+                if name in metrics:
+                    columns[i % 2].metric(label, f"{metrics[name]:.3f}")
         st.caption(f"Registered {info['registered_at']} · loaded {info['loaded_at']}")
         if info.get("promotion"):
             st.caption(f"Promotion: {info['promotion']}")

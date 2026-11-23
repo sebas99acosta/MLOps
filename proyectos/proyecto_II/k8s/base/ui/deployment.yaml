@@ -1,4 +1,4 @@
-# Streamlit UI. Talks only to the API service.
+﻿# Streamlit UI. Talks only to the API service.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: ui
-          image: sebas10acosta/mlops-diabetes-ui:0.1.0
+          image: sebas10acosta/mlops-diabetes-ui:0.1.1
           ports:
             - name: http
               containerPort: 8501
