@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: sebas10acosta/mlops-diabetes-ml:0.2.0
+          image: sebas10acosta/mlops-diabetes-ml:0.2.1
           ports:
             - name: http
               containerPort: 8000
@@ -54,9 +54,12 @@ spec:
             periodSeconds: 5
             failureThreshold: 24
           # Ready only with a model loaded: no traffic to a pod that would 503.
+          # 3 s timeout (default 1 s): a saturated pod is slow, not broken;
+          # with 1 s it flapped out of the Service under load (Locust 200 users).
           readinessProbe:
             httpGet: {path: /health, port: http}
             periodSeconds: 10
+            timeoutSeconds: 3
           # Alive = the process answers; a missing model is not a reason to restart.
           livenessProbe:
             tcpSocket: {port: http}

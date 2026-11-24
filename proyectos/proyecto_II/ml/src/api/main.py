@@ -60,7 +60,9 @@ reload_lock = threading.Lock()  # one load at a time (background thread vs /relo
 REQUESTS = Counter("api_predict_requests_total", "Calls to /predict by result", ["status"])
 LATENCY = Histogram(
     "api_predict_latency_seconds", "Time to answer /predict (cleaning + model)",
-    buckets=(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1, 2.5, 5),
+    # Up to 60 s: under overload requests wait seconds for a thread, and a
+    # histogram that tops out at 5 s would report "5 s" for all of them.
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60),
 )
 PREDICTIONS = Counter("api_predictions_total", "Predictions by class and model version",
                       ["prediction", "model_version"])
@@ -276,8 +278,13 @@ def log_inference(row: dict) -> None:
         logger.error("Could not log inference %s: %s", row["request_id"], error)
 
 
+# The light endpoints are `async def`: they run on the event loop, not in the
+# worker thread pool that /predict (a blocking `def`) uses. Under overload that
+# pool is full, and probes and Prometheus scrapes queued behind predictions time
+# out -> the pod is marked not ready and drops out of the Service (measured with
+# Locust at 200 users). They only read in-memory state, so they never block.
 @app.get("/")
-def root():
+async def root():
     info = state["info"]
     return {
         "service": "Diabetes readmission API",
@@ -288,7 +295,7 @@ def root():
 
 
 @app.get("/health")
-def health(response: Response):
+async def health(response: Response):
     """Readiness: 200 only when a model is loaded (Kubernetes sends no traffic otherwise)."""
     loaded = state["model"] is not None
     if not loaded:
@@ -298,7 +305,7 @@ def health(response: Response):
 
 
 @app.get("/model-info")
-def model_info():
+async def model_info():
     """The registry version being served: threshold, metrics, and how it was promoted."""
     if state["info"] is None:
         raise HTTPException(status_code=503, detail="No model loaded yet.")
@@ -362,6 +369,6 @@ def predict(encounter: Encounter, background_tasks: BackgroundTasks):
 
 
 @app.get("/metrics")
-def metrics():
+async def metrics():
     """Prometheus scrape endpoint."""
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
