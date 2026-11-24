@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+# The test script and its 200 payloads (regenerated name on change -> the
+# Deployment rolls out with the new files).
+configMapGenerator:
+  - name: locustfile
+    files:
+      - locustfile.py
+      - payloads.json

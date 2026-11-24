@@ -1,0 +1,27 @@
+# Grafana provisioning: the Prometheus data source and where to find
+# dashboards. Loaded at startup, so a fresh pod comes up ready to use.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-provisioning
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        jsonData:
+          timeInterval: 15s   # = Prometheus scrape interval
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: mlops
+        folder: MLOps
+        type: file
+        allowUiUpdates: true   # editable in the UI, but git is the source of truth
+        options:
+          path: /var/lib/grafana/dashboards

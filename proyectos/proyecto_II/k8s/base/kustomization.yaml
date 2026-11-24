@@ -22,3 +22,6 @@ resources:
   - mlflow
   - api
   - ui
+  - prometheus
+  - grafana
+  - locust

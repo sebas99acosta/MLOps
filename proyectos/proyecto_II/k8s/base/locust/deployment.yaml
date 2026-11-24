@@ -1,0 +1,45 @@
+# Locust load generator, in the cluster: targets the API's Service directly
+# (http://api:8000), no external network in between. Idle until a test is
+# started from its web UI. Single process (no workers): one core is enough
+# for a few hundred users with a 1–2.5 s wait.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: locust
+  template:
+    metadata:
+      labels:
+        app: locust
+    spec:
+      containers:
+        - name: locust
+          image: locustio/locust:2.46.7
+          args: ["-f", "/locust/locustfile.py"]
+          env:
+            - name: LOCUST_HOST
+              value: http://api:8000
+          ports:
+            - name: http
+              containerPort: 8089
+          volumeMounts:
+            - name: locustfile
+              mountPath: /locust
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        - name: locustfile
+          configMap:
+            name: locustfile
