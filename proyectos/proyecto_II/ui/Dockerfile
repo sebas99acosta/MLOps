@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir streamlit==1.50.0 requests==2.32.5 \
     && useradd --uid 1000 --create-home app
 
 WORKDIR /app
-COPY app.py .
+COPY app.py examples.json ./
 
 ENV PYTHONUNBUFFERED=1 \
     STREAMLIT_SERVER_HEADLESS=true \

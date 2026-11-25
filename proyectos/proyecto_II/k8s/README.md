@@ -4,7 +4,9 @@
 k8s/
 ├── infra/local-path-storage.yaml   # StorageClass (Rancher's K3s ships without one)
 ├── secrets.example.env             # template of the Secret mlops-secrets
-└── base/                           # namespace mlops: Postgres, MinIO, MLflow (Kustomize)
+├── airflow/create-secrets.sh       # Airflow's Secrets (namespace airflow)
+└── base/                           # namespace mlops (Kustomize): Postgres, MinIO, MLflow,
+                                    #   API, Streamlit (ui), Prometheus, Grafana, Locust
 ```
 
 ## Ports

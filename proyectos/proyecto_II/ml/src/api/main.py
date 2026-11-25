@@ -57,7 +57,7 @@ state = {"model": None, "info": None, "last_check": None, "last_check_error": No
 reload_lock = threading.Lock()  # one load at a time (background thread vs /reload)
 
 # --- Prometheus metrics (one uvicorn worker per pod, so one registry). ---
-REQUESTS = Counter("api_predict_requests_total", "Calls to /predict by result", ["status"])
+REQUESTS = Counter("api_predict_requests_total", "Calls to /predict by HTTP status code", ["status"])
 LATENCY = Histogram(
     "api_predict_latency_seconds", "Time to answer /predict (cleaning + model)",
     # Up to 60 s: under overload requests wait seconds for a thread, and a
@@ -186,6 +186,21 @@ app = FastAPI(
                 "Serves the MLflow model `diabetes_readmission@champion`.",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def count_predict_responses(request, call_next):
+    """Count every /predict answer by status code, including the ones the
+    handler never sees: 422 (rejected by validation) and 500 (unexpected error)."""
+    if request.url.path != "/predict":
+        return await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        REQUESTS.labels(status="500").inc()
+        raise
+    REQUESTS.labels(status=str(response.status_code)).inc()
+    return response
 
 # --- Input: the raw encounter, as in the source CSV. ---
 AgeBracket = Literal["[0-10)", "[10-20)", "[20-30)", "[30-40)", "[40-50)",
@@ -333,7 +348,6 @@ def predict(encounter: Encounter, background_tasks: BackgroundTasks):
     started = time.perf_counter()
     model, info = state["model"], state["info"]  # same version for the whole request
     if model is None:
-        REQUESTS.labels(status="no_model").inc()
         raise HTTPException(status_code=503, detail="No model loaded: run the Airflow DAG to promote one.")
 
     raw = encounter.model_dump()
@@ -361,7 +375,6 @@ def predict(encounter: Encounter, background_tasks: BackgroundTasks):
         "latency_ms": result.latency_ms,
     })
 
-    REQUESTS.labels(status="ok").inc()
     LATENCY.observe(latency)
     PREDICTIONS.labels(prediction=str(prediction), model_version=info["model_version"]).inc()
     PROBABILITY.observe(probability)

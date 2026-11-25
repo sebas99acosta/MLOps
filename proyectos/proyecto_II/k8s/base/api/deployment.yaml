@@ -1,4 +1,4 @@
-# Inference API. Stateless (model from MLflow, logs to Postgres), so a
+﻿# Inference API. Stateless (model from MLflow, logs to Postgres), so a
 # Deployment; scale with replicas. Same image as the trainer pods.
 apiVersion: apps/v1
 kind: Deployment
@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: sebas10acosta/mlops-diabetes-ml:0.2.1
+          image: sebas10acosta/mlops-diabetes-ml:0.2.2
           ports:
             - name: http
               containerPort: 8000
